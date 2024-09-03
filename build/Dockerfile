@@ -1,35 +1,35 @@
-FROM alpine as binary
-ARG VERSION
+FROM debian:bullseye-slim as binary
+ARG VERSION=27.0
 
-ENV FILENAME bitcoin-$VERSION-x86_64-linux-gnu.tar.gz
-ENV DOWNLOAD_URL https://bitcoin.org/bin/bitcoin-core-$VERSION/${FILENAME}
+ENV FILENAME=bitcoin-${VERSION}-x86_64-linux-gnu.tar.gz
+ENV DOWNLOAD_URL=https://bitcoin.org/bin/bitcoin-core-${VERSION}/${FILENAME}
 
-RUN echo "URL=" ${DOWNLOAD_URL}
+RUN echo "Building Bitcoin Core version: ${VERSION}"
 
-RUN apk update \
-  && apk --no-cache add wget bash ca-certificates
+# Step 1: Update the package list
+RUN apt-get update && echo "Package list updated successfully"
 
-RUN wget  --progress=bar:force:noscroll ${DOWNLOAD_URL} -O /bitcoin.tar.gz
+# Step 2: Install required packages including 'file' for verification
+RUN apt-get install -y wget tar ca-certificates file && echo "Required packages installed successfully"
 
-RUN tar zxvf /bitcoin.tar.gz && mv /bitcoin-* /bitcoin
+# Step 3: Download Bitcoin Core
+RUN wget ${DOWNLOAD_URL} -O /bitcoin.tar.gz && echo "Bitcoin Core downloaded successfully" || (echo "Bitcoin Core download failed" && exit 1)
 
-FROM alpine AS final
+# Step 4: Check the downloaded file
+RUN ls -lh /bitcoin.tar.gz && file /bitcoin.tar.gz || (echo "File verification failed" && exit 1)
 
-ARG GLIBC_VERSION=2.30-r0
+# Step 5: Extract Bitcoin Core
+RUN tar xvf /bitcoin.tar.gz && mv /bitcoin-* /bitcoin && echo "Bitcoin Core extracted and moved successfully" || (echo "Extraction failed" && exit 1)
 
-RUN apk update \
-  && apk --no-cache add wget bash ca-certificates \
-  && wget -q -O /etc/apk/keys/sgerrand.rsa.pub https://alpine-pkgs.sgerrand.com/sgerrand.rsa.pub \
-  && wget https://github.com/sgerrand/alpine-pkg-glibc/releases/download/${GLIBC_VERSION}/glibc-${GLIBC_VERSION}.apk \
-  && wget https://github.com/sgerrand/alpine-pkg-glibc/releases/download/${GLIBC_VERSION}/glibc-bin-${GLIBC_VERSION}.apk \
-  && apk --no-cache add glibc-${GLIBC_VERSION}.apk \
-  && apk --no-cache add glibc-bin-${GLIBC_VERSION}.apk \
-  && rm -rf /glibc-${GLIBC_VERSION}.apk \
-  && rm -rf /glibc-bin-${GLIBC_VERSION}.apk \
-  && mkdir /root/.bitcoin \
-  && apk del wget ca-certificates
+FROM debian:bullseye-slim AS final
 
 COPY --from=binary /bitcoin/bin/bitcoind /usr/local/bin/
+
+# Ensure the directory exists before adding the file
+RUN mkdir -p /root/.bitcoin
+
+# Copy the bitcoin.conf file to the correct location
+ADD ./config/bitcoin.conf /root/.bitcoin/
 
 ADD ./bin/docker_entrypoint.sh /usr/local/bin/docker_entrypoint.sh
 RUN chmod a+x /usr/local/bin/docker_entrypoint.sh
